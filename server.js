@@ -6,19 +6,17 @@ const axios = require('axios');
 const os = require('os');
 const network = require('network');
 const { spawn } = require('child_process');
+const http = require('http');
+const https = require('https');
 
 
 
-
-
-// enable CORS for requests coming from http://localhost:3000
+// Enable CORS for requests coming from http://localhost:3000
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://ajithrevildo.netlify.app/');
+  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
   next();
 });
-
-
 
 const urls = [
   { name: 'Med Mandra(Integrated)', url: 'http://his-chn.apollohospitals.com:8383/' },
@@ -27,49 +25,94 @@ const urls = [
   { name: 'Med Mandra(103)', url: 'http://10.44.6.103:8383' },
   { name: 'Med Mandra(104)', url: 'http://10.44.6.104:8383' },
   { name: 'Med Mandra(105)', url: 'http://10.44.6.105:8383' },
-  { name: 'Med Mandra(New Emr)', url: 'https://opservices.apollohospitals.com'},
-  { name: 'New Digital Hospital', url: 'http://10.44.6.113:9893/index.html'},
-  { name: 'AHC Summary', url: 'https://ahcsummary.apollohospitals.com/Login'},
-  { name: 'PACS', url: 'http://10.44.80.67/PACSLogin'},
-  { name: 'Office365', url: 'https://outlook.office.com'},
+  { name: 'Med Mandra(106)', url: 'http://his-chng.apollohospitals.com/HomePage.aspx' },
+  { name: 'Med Mandra(New Emr)', url: 'https://opservices.apollohospitals.com' },
+  { name: 'New Digital Hospital', url: 'http://10.44.6.113:9893/index.html' },
+  { name: 'AHC Summary', url: 'https://ahcsummary.apollohospitals.com/Login' },
+  { name: 'PACS', url: 'http://10.44.80.67/PACSLogin' },
+  { name: 'Office365', url: 'https://outlook.office.com' },
 ];
+
+function checkUrl(url) {
+  return new Promise((resolve, reject) => {
+    const protocol = url.url.startsWith('https') ? require('https') : require('http');
+    const startTime = Date.now();
+
+    protocol
+      .get(url.url, (res) => {
+        const endTime = Date.now();
+        const responseTime = endTime - startTime;
+        resolve({ name: url.name, url: url.url, responseTime });
+      })
+      .on('error', (error) => {
+        resolve({ name: url.name, url: url.url, responseTime: Infinity }); // Assume Infinity response time for failed requests
+      });
+  });
+}
+
+async function findFastestUrl() {
+  try {
+    const results = await Promise.all(urls.map((url) => checkUrl(url)));
+    const sortedResults = results.sort((a, b) => a.responseTime - b.responseTime);
+
+    return sortedResults.map((result, index) => ({
+      id: index + 1,
+      name: result.name,
+      url: result.url,
+      responseTime: result.responseTime,
+    }));
+  } catch (error) {
+    console.error('Error occurred:', error);
+    throw error;
+  }
+}
+
+app.get('/fastest-urls', async (req, res) => {
+  try {
+    const fastestUrls = await findFastestUrl();
+    res.json(fastestUrls);
+  } catch (error) {
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
 
 // Function to check URLs
 async function checkUrls() {
-    let results = [];
-    for (const { name, url } of urls) {
-      try {
-        const response = await axios.get(url, { timeout: 5000 });
-        results.push({ name, url, status: 'UP', statusCode: response.status });
-      } catch (error) {
-        if (error.code === 'ETIMEDOUT') {
-          results.push({ name, url, status: 'DOWN', error: 'Request timed out.' });
-        } else if (error.response) {
-          results.push({ name, url, status: 'DOWN', error: `Status code ${error.response.status}` });
-        } else {
-          results.push({ name, url, status: 'DOWN', error: error.message });
-        }
+  let results = [];
+  for (const { name, url } of urls) {
+    try {
+      const response = await axios.get(url, { timeout: 5000 });
+      results.push({ name, url, status: 'UP', statusCode: response.status });
+    } catch (error) {
+      if (error.code === 'ETIMEDOUT') {
+        results.push({ name, url, status: 'DOWN', error: 'Request timed out.' });
+      } else if (error.response) {
+        results.push({ name, url, status: 'DOWN', error: `Status code ${error.response.status}` });
+      } else {
+        results.push({ name, url, status: 'DOWN', error: error.message });
       }
     }
-    return {
-      results,
-      timestamp: new Date().toLocaleString(),
-    };
   }
-  
+  return {
+    results,
+    timestamp: new Date().toLocaleString(),
+  };
+}
 
 // Endpoint to get the status of URLs
 app.get('/checkUrls', async (req, res) => {
-    const { results, timestamp } = await checkUrls();
-    //console.log(`URL status updated: ${timestamp}`);
-    res.json({ results, timestamp });
-  });
+  const { results, timestamp } = await checkUrls();
+   // Add CORS headers to the response
+   res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.json({ results, timestamp });
+});
 
 // Continuously check URLs every 5 seconds
 setInterval(async () => {
   const results = await checkUrls();
-  //console.log(`URL status updated: ${new Date().toLocaleString()}`);
 }, 5000);
+
 
 // define a variable to hold system information
 const systemInfo = {
@@ -209,5 +252,39 @@ const pingIps = async () => {
 });
 
 // set up server to listen on a specific port
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 8000;
 app.listen(port, () => console.log(`Server is listening on port ${port}...`));
+
+
+/*
+// Import required modules and libraries
+const express = require('express');
+const app = express();
+
+// Enable CORS for requests coming from http://localhost:3000
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
+// Import and use components
+const fastestUrlsRouter = require('./fastestUrlsRouter');
+app.use('/fastest-urls', fastestUrlsRouter);
+
+const checkUrlsRouter = require('./checkUrlsRouter');
+app.use('/checkUrls', checkUrlsRouter);
+
+const systemInfoRouter = require('./systemInfoRouter');
+app.use('/api/system-info', systemInfoRouter);
+
+const networkInfoRouter = require('./networkInfoRouter');
+app.use('/api/network-info', networkInfoRouter);
+
+const pingRouter = require('./pingRouter');
+app.use('/api/ping', pingRouter);
+
+// Set up server to listen on a specific port
+const port = process.env.PORT || 8000;
+app.listen(port, () => console.log(`Server is listening on port ${port}...`));
+*/
